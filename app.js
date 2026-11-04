@@ -145,6 +145,95 @@ const stat = (n, label, sub, warn) => h("div", { class: `stat${warn ? " warn" : 
 const byPlatform = (p) => Object.entries(PLATFORMS).filter(([k]) => p[k]).map(([k, l]) => `${l} ${p[k]}`).join(" · ");
 const empty = (text) => h("div", { class: "empty" }, text);
 
+const shortDay = (d) => new Intl.DateTimeFormat("ru-RU", { timeZone: "UTC", day: "numeric", month: "short" }).format(new Date(d + "T00:00:00Z"));
+const initial = (name) => (String(name || "?").trim()[0] || "?").toUpperCase();
+const WEEKDAYS = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"];
+const israelHour = (iso) => Number(new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Jerusalem", hour: "2-digit", hourCycle: "h23" }).format(new Date(iso)));
+const dayKey = (offset) => new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Jerusalem" }).format(new Date(Date.now() - offset * 864e5));
+const daysBetween = (a, b) => Math.round((Date.parse(b + "T00:00:00Z") - Date.parse(a + "T00:00:00Z")) / 864e5);
+function columns(values, labels) {
+  const max = Math.max(1, ...values);
+  const box = h("div", { class: "cols" }, values.map((v, i) => h("div", { class: "c" }, h("b", { "data-h": (100 * v) / max, title: String(v) }), h("span", {}, labels[i]))));
+  queueMicrotask(() => box.querySelectorAll("[data-h]").forEach((el) => (el.style.height = `${Math.max(2, el.dataset.h * 0.75)}%`)));
+  return box;
+}
+
+/** Everything the server knows about one device (person), with the usual delete buttons. */
+async function openPerson(out, hash, back) {
+  out.replaceChildren(empty("Загружаю…"));
+  let p;
+  try {
+    p = await call("person", { hash });
+  } catch (e) {
+    if (e.message !== "NO_SESSION") out.replaceChildren(h("button", { class: "ghost back", onclick: back }, "‹ Назад"), empty(e.message));
+    return;
+  }
+  const again = () => openPerson(out, hash, back);
+  const visits = p.visits;
+  const days = new Set(visits.map((v) => v.day));
+  const platforms = [...new Set(visits.map((v) => v.platform))];
+  const first = visits[0]?.day, last = visits.at(-1)?.day, today = dayKey(0);
+  const inLast = (n) => visits.filter((v) => daysBetween(v.day, today) < n).length;
+  const tipsIls = p.tips.reduce((s, t) => s + Number(t.amount_ils), 0);
+  const title = (id) => p.titles.find((t) => t.id === id);
+  const weekday = Array(7).fill(0);
+  for (const v of visits) weekday[(new Date(v.day + "T12:00:00Z").getUTCDay() + 6) % 7]++;
+  const timed = visits.filter((v) => v.first_at);
+  const hours = Array(8).fill(0); // 3-hour blocks
+  for (const v of timed) hours[Math.floor(israelHour(v.first_at) / 3)]++;
+  const platformOf = new Map(visits.map((v) => [v.day, v.platform]));
+  const calendar = Array.from({ length: 60 }, (_, i) => dayKey(59 - i));
+
+  out.replaceChildren(...[
+    h("button", { class: "ghost back", onclick: back }, "‹ Назад к поиску"),
+    h("div", { class: "person-head" },
+      h("span", { class: "avatar" }, initial(p.name)),
+      h("div", { class: "grow" },
+        h("div", { class: "name" }, p.name || "Без ника"),
+        h("div", { class: "chips" },
+          platforms.map((k) => h("span", { class: "chip" }, PLATFORMS[k] || k)),
+          p.reservedName ? h("span", { class: "chip" }, `ник с ${when(p.nameSince)}`) : h("span", { class: "chip" }, "ник не занят")))),
+    h("div", { class: "grid3" },
+      stat(days.size, "дней в приложении"),
+      stat(inLast(7), "из последних 7"),
+      stat(inLast(30), "из последних 30"),
+      stat(first ? shortDay(first) : "—", "первый раз"),
+      stat(last ? shortDay(last) : "—", "последний раз"),
+      stat(money(tipsIls), `чаевые (${p.tips.length})`),
+      stat(p.builds.length, "сборок"),
+      stat(p.comments.length, "комментариев"),
+      stat(p.likes.length, "лайков поставил")),
+    h("h2", {}, "Последние 60 дней (цвет = устройство)"),
+    h("div", { class: "card" },
+      h("div", { class: "days" }, calendar.map((d) => h("i", { class: days.has(d) ? platformOf.get(d) : "", title: dayLabel(d) }))),
+      h("div", { class: "legend" }, ["ios", "android", "web"].map((k) => h("span", {}, h("i", { class: k }), PLATFORMS[k])))),
+    h("h2", {}, "По дням недели"),
+    h("div", { class: "card" }, columns(weekday, WEEKDAYS)),
+    h("h2", {}, "Во сколько впервые открывает за день"),
+    timed.length
+      ? h("div", { class: "card" }, columns(hours, ["0–3", "3–6", "6–9", "9–12", "12–15", "15–18", "18–21", "21–24"]))
+      : empty("Время записывается с 04.11 — появится, когда человек снова зайдёт."),
+    p.builds.length ? [h("h2", {}, `Сборки (${p.builds.length})`), p.builds.map((b) => h("div", { class: "item" },
+      h("div", { class: "head" }, h("span", { class: "who" }, b.title), h("span", { class: "when" }, when(b.created_at))),
+      h("div", { class: "muted" }, `${money(b.price_ils)} · ♥ ${b.favorite_count} · 💬 ${b.comment_count}${b.tags?.length ? " · " + b.tags.join(" ") : ""}`),
+      h("div", { class: "actions" }, h("button", { class: "danger", onclick: () => remove("build", b.id, `сборку «${b.title}»`, again) }, "Удалить сборку"))))] : null,
+    p.comments.length ? [h("h2", {}, `Комментарии (${p.comments.length})`), p.comments.map((c) => h("div", { class: "item" },
+      h("div", { class: "head" }, h("span", { class: "muted" }, `к «${title(c.build_id)?.title ?? "удалённой сборке"}»`), h("span", { class: "when" }, when(c.created_at))),
+      h("div", { class: "body" }, c.message),
+      h("div", { class: "actions" }, h("button", { class: "danger", onclick: () => remove("comment", c.id, "комментарий", again) }, "Удалить"))))] : null,
+    p.likes.length ? [h("h2", {}, `Лайкнул (${p.likes.length})`), h("div", { class: "card" }, p.likes.map((l) => h("div", { class: "row" },
+      h("div", { class: "grow" }, `♥ ${title(l.build_id)?.title ?? "удалённая сборка"}`, h("span", { class: "muted" }, title(l.build_id) ? ` — ${title(l.build_id).author_name}` : "")),
+      h("span", { class: "muted" }, when(l.created_at)))))] : null,
+    p.tips.length ? [h("h2", {}, `Чаевые (${p.tips.length}) — по нику`), p.tips.map((t) => h("div", { class: "item" },
+      h("div", { class: "head" }, h("span", { class: "who" }, money(t.amount_ils)), h("span", { class: "when" }, when(t.created_at))),
+      h("div", { class: "actions" }, h("button", { class: "danger", onclick: () => remove("tip", t.id, "эти чаевые со стены", again) }, "Убрать со стены"))))] : null,
+    p.reportsSent.length ? [h("h2", {}, `Жаловался (${p.reportsSent.length})`), h("div", { class: "card" }, p.reportsSent.map((x) => h("div", { class: "row" },
+      h("div", { class: "grow" }, `${x.target_type === "build" ? "на сборку" : "на комментарий"} — ${REASONS[x.reason] || x.reason}`), h("span", { class: "muted" }, when(x.created_at)))))] : null,
+    h("p", { class: "muted" }, "Устройство = одна установка приложения. Если человек переустановит приложение или зайдёт с другого телефона, это будет новый «человек»."),
+  ].flat(Infinity).filter(Boolean));
+  window.scrollTo(0, 0);
+}
+
 const VIEWS = {
   async summary(box) {
     const s = await call("summary");
@@ -211,7 +300,10 @@ const VIEWS = {
       try {
         const r = await call("search", { q: input.value });
         const parts = [];
-        if (r.names.length) parts.push(h("h2", {}, "Ники"), h("div", { class: "card" }, r.names.map((n) => h("div", {}, n.name, " ", h("span", { class: "muted" }, `· с ${when(n.updated_at)}`)))));
+        const results = () => out.replaceChildren(...(parts.length ? parts.flat() : [empty("Ничего не нашлось.")]));
+        if (r.people.length) parts.push(h("h2", {}, `Люди (${r.people.length}) — нажми, чтобы открыть всё о человеке`), r.people.map((p) =>
+          h("button", { class: "person-link", onclick: () => openPerson(out, p.hash, results) },
+            h("span", { class: "avatar" }, initial(p.name)), h("span", { class: "grow" }, p.name), h("span", { class: "muted" }, "›"))));
         if (r.builds.length) parts.push(h("h2", {}, `Сборки (${r.builds.length})`), r.builds.map((b) => h("div", { class: "item" },
           h("div", { class: "head" }, h("span", { class: "who" }, b.title), h("span", { class: "when" }, when(b.created_at))),
           h("div", { class: "muted" }, `${b.author_name} · ${money(b.price_ils)} · ♥ ${b.favorite_count} · 💬 ${b.comment_count}`),
@@ -223,7 +315,7 @@ const VIEWS = {
         if (r.tips.length) parts.push(h("h2", {}, `Чаевые (${r.tips.length})`), r.tips.map((t) => h("div", { class: "item" },
           h("div", { class: "head" }, h("span", { class: "who" }, t.name), h("span", {}, money(t.amount_ils)), h("span", { class: "when" }, when(t.created_at))),
           h("div", { class: "actions" }, h("button", { class: "danger", onclick: () => remove("tip", t.id, `имя «${t.name}» со стены`, run) }, "Убрать со стены")))));
-        out.replaceChildren(...(parts.length ? parts.flat() : [empty("Ничего не нашлось.")]));
+        results();
       } catch (e) {
         if (e.message !== "NO_SESSION") out.replaceChildren(empty(e.message === "SHORT" ? "Нужно минимум 2 буквы." : e.message));
       }
