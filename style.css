@@ -93,15 +93,14 @@ body:not(.authed) .bar { display: none; }
   border-top: 1px solid var(--line);
 }
 .bar .pill { position: absolute; left: 0; top: 4px; height: 50px; border-radius: 14px; background: color-mix(in srgb, var(--accent) 13%, transparent); pointer-events: none; }
-.bar .pill.anim { transition: transform .42s cubic-bezier(.3, 1.25, .45, 1), width .42s cubic-bezier(.3, 1.25, .45, 1); }
+.bar .pill.anim { transition: transform .3s cubic-bezier(.25, .8, .25, 1), width .3s cubic-bezier(.25, .8, .25, 1); }
 .bar button { transition: color .25s; position: relative; border: 0; background: none; color: var(--muted); display: flex; flex-direction: column; align-items: center; gap: 1px; padding: 4px 0; }
 .bar .bi { height: 26px; display: grid; place-items: center; }
 .ico { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 .icon .ico { width: 19px; height: 19px; stroke-width: 2.2; }
 .mi .ico { width: 19px; height: 19px; stroke-width: 2; }
 .bar button.on .ico { stroke-width: 2.3; }
-.bar .bi.fade-in { animation: pop .38s cubic-bezier(.3, 1.4, .5, 1); }
-@keyframes pop { 0% { transform: scale(.75); } 60% { transform: scale(1.12); } 100% { transform: scale(1); } }
+
 .in-person > .searchbar { display: none; }
 .seg-wrap + div > .grid:first-child { margin-top: 14px; }
 .bar .bl { font-size: 10.5px; font-weight: 600; }

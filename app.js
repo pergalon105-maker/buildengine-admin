@@ -4,7 +4,7 @@
 // Notes, marks, "seen" markers and settings live only in this phone's localStorage.
 "use strict";
 
-const VERSION = "2.2";
+const VERSION = "2.3";
 const API = "https://hvleqwnawexcyxiciehu.supabase.co/functions/v1/admin";
 const KEY = "be.admin.session";
 const PREF = "be.admin.prefs";
@@ -1102,6 +1102,22 @@ const VIEWS = {
     );
   },
 };
+
+// ── self-update: a home-screen app keeps old files for a long time, so ask the site which
+// version is live and reload once when it's newer (version.json is never cached) ──
+async function checkUpdate() {
+  try {
+    const r = await fetch(`version.json?t=${Date.now()}`, { cache: "no-store" });
+    const { v } = await r.json();
+    if (!v || v === VERSION) return;
+    const tried = sessionStorage.getItem("be.admin.reloaded");
+    if (tried === v) return; // already reloaded for this version; don't loop
+    sessionStorage.setItem("be.admin.reloaded", v);
+    location.reload();
+  } catch { /* offline: keep what we have */ }
+}
+document.addEventListener("visibilitychange", () => { if (!document.hidden) checkUpdate(); });
+checkUpdate();
 
 applyPrefs();
 if (localStorage.getItem(KEY)) renderMain("summary");
