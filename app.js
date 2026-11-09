@@ -4,7 +4,7 @@
 // Notes, marks, "seen" markers and settings live only in this phone's localStorage.
 "use strict";
 
-const VERSION = "2.4";
+const VERSION = "2.5";
 const API = "https://hvleqwnawexcyxiciehu.supabase.co/functions/v1/admin";
 const KEY = "be.admin.session";
 const PREF = "be.admin.prefs";
@@ -727,6 +727,13 @@ async function openPerson(out, hash, back) {
   app.scrollTo(0, 0);
 }
 
+/** Screen sizes as the phone reports them: helps fix layout problems from a screenshot. */
+function screenInfo() {
+  const probe = (v) => { const d = h("div", { class: `probe ${v}` }); document.body.append(d); const n = Math.round(d.getBoundingClientRect().height); d.remove(); return n; };
+  const bar = document.querySelector(".bar")?.getBoundingClientRect();
+  return `${navigator.standalone ? "app" : "web"} · ${screen.width}×${screen.height} · in ${window.innerHeight} · vv ${Math.round(window.visualViewport?.height || 0)} · vh ${probe("vh")} · dvh ${probe("dvh")} · body ${Math.round(document.body.getBoundingClientRect().height)} · bar ${bar ? Math.round(bar.bottom) : "-"}`;
+}
+
 // ── screens ──
 const VIEWS = {
   async summary(box) {
@@ -1098,6 +1105,7 @@ const VIEWS = {
           renderLogin();
         } }, t("logout"))),
       h("p", { class: "hint center" }, `BuildEngine ${t("admin")} · v${VERSION}`),
+      h("p", { class: "hint center" }, screenInfo()),
       h("p", { class: "hint center" }, t("set.safe")),
     );
   },
@@ -1118,20 +1126,6 @@ async function checkUpdate() {
 }
 document.addEventListener("visibilitychange", () => { if (!document.hidden) checkUpdate(); });
 checkUpdate();
-
-// ── full-screen height: an iPhone home-screen app reports a viewport shorter than the screen,
-// which left an empty strip under the tab bar; use the real screen height there ──
-function fitHeight() {
-  let hgt = window.innerHeight;
-  if (navigator.standalone) {
-    const land = window.matchMedia("(orientation: landscape)").matches;
-    hgt = Math.max(hgt, land ? Math.min(screen.width, screen.height) : Math.max(screen.width, screen.height));
-  }
-  document.documentElement.style.setProperty("--app-h", `${hgt}px`);
-}
-fitHeight();
-window.addEventListener("resize", fitHeight);
-window.addEventListener("orientationchange", () => setTimeout(fitHeight, 300));
 
 applyPrefs();
 if (localStorage.getItem(KEY)) renderMain("summary");

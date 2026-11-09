@@ -43,10 +43,12 @@ html { overscroll-behavior-y: none; --dir: 1; }
 html[dir="rtl"] { --dir: -1; }
 /* The page itself never scrolls: only <main> does, and the tab bar is a normal block under it.
    On an iPhone home-screen app this keeps the bar from jumping when screens change height. */
-html, body { height: 100%; overflow: hidden; }
+/* No position:fixed shell: iOS 26 home-screen apps clip fixed boxes at the bottom. In standalone
+   mode 100vh is the whole screen (safe areas included); in Safari the dynamic height is right. */
+html, body { height: 100vh; height: 100dvh; overflow: hidden; }
+@media (display-mode: standalone) { html, body { height: 100vh; } }
 body {
-  position: fixed; top: 0; left: 0; right: 0; display: flex; flex-direction: column;
-  height: 100vh; height: 100lvh; height: var(--app-h, 100lvh);
+  position: relative; display: flex; flex-direction: column;
   font: 15px/1.45 -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
   padding: env(safe-area-inset-top) 0 0;
   -webkit-font-smoothing: antialiased;
@@ -240,7 +242,7 @@ label { display: block; color: var(--muted); font-size: 13px; margin: 16px 0 6px
 
 .bulkbar { display: none; }
 .bulkbar.on {
-  display: block; animation: slideUp .3s cubic-bezier(.2, .8, .2, 1); position: fixed; inset-inline: 0; bottom: 0; z-index: 6; background: var(--bg) !important;
+  display: block; animation: slideUp .3s cubic-bezier(.2, .8, .2, 1); position: absolute; inset-inline: 0; bottom: 0; z-index: 6; background: var(--bg) !important;
   padding: 12px 16px calc(12px + env(safe-area-inset-bottom));
   background: var(--glass); -webkit-backdrop-filter: blur(20px); backdrop-filter: blur(20px); border-top: 1px solid var(--line);
 }
@@ -371,3 +373,7 @@ html[dir="rtl"] .track, html[dir="rtl"] .split, html[dir="rtl"] .meter { transfo
   transition: opacity .2s, transform .25s, height .28s cubic-bezier(.4, 0, .2, 1), padding .28s; }
 .fchip { transition: transform .18s, background-color .22s, color .22s, border-color .22s; }
 .hero { animation: none; }
+
+.probe { position: absolute; top: 0; width: 1px; visibility: hidden; pointer-events: none; }
+.probe.vh { height: 100vh; }
+.probe.dvh { height: 100dvh; }
