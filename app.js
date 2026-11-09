@@ -4,7 +4,7 @@
 // Notes, marks, "seen" markers and settings live only in this phone's localStorage.
 "use strict";
 
-const VERSION = "2.1";
+const VERSION = "2.2";
 const API = "https://hvleqwnawexcyxiciehu.supabase.co/functions/v1/admin";
 const KEY = "be.admin.session";
 const PREF = "be.admin.prefs";
@@ -246,7 +246,7 @@ function ensureBar() {
   barEl = h("nav", { class: "bar" }, h("span", { class: "pill", "aria-hidden": "true" }), BAR.map((id) =>
     h("button", { "data-tab": id, onclick: () => {
       if (selecting) return;
-      if (id === current && !state.person && !MORE.includes(current)) { window.scrollTo({ top: 0, behavior: calm() ? "auto" : "smooth" }); return; }
+      if (id === current && !state.person && !MORE.includes(current)) { app.scrollTo({ top: 0, behavior: calm() ? "auto" : "smooth" }); return; }
       state.person = null; state.q = "";
       renderMain(id);
     } }, h("span", { class: "bi" }, icon(id)), h("span", { class: "bl" }, t(`tab.${id}`)))));
@@ -295,7 +295,7 @@ function renderMain(tab, opts = {}) {
       tab !== "settings" && tab !== "more" ? h("button", { class: "icon", "aria-label": t("refresh"), onclick: refresh }, icon("refresh")) : null),
     h("h1", { class: "big-title" }, t(`tab.${tab}`)),
     body));
-  window.scrollTo(0, 0);
+  app.scrollTo(0, 0);
   paintBadges();
   Promise.resolve(VIEWS[tab](body, opts))
     .then(() => { if (current === tab) { setStamp(); body.classList.add("ready"); } })
@@ -314,14 +314,14 @@ async function softRender(tab, opts) {
   const spin = document.querySelector(".top .icon");
   spin?.classList.add("spin");
   document.querySelector(".ptr")?.classList.add("busy");
-  const y = window.scrollY;
+  const y = app.scrollTop;
   const fresh = h("div", { class: "view ready soft" });
   try {
     await VIEWS[tab](fresh, opts);
     if (current === tab && old.isConnected) {
       if (fresh.contains(fresh.querySelector(".bulkbar"))) stopSelecting();
       old.replaceWith(fresh);
-      window.scrollTo(0, y);
+      app.scrollTo(0, y);
       setStamp();
     }
   } catch (e) {
@@ -404,7 +404,7 @@ document.addEventListener("visibilitychange", () => {
   document.body.append(ptr);
   let y0 = null, dy = 0;
   document.addEventListener("touchstart", (e) => {
-    y0 = window.scrollY <= 0 && e.touches.length === 1 && document.body.classList.contains("authed") && !selecting && !softBusy ? e.touches[0].clientY : null;
+    y0 = app.scrollTop <= 0 && e.touches.length === 1 && document.body.classList.contains("authed") && !selecting && !softBusy ? e.touches[0].clientY : null;
     dy = 0;
   }, { passive: true });
   document.addEventListener("touchmove", (e) => {
@@ -612,7 +612,7 @@ function toggleTag(hash, tag) {
 async function openPerson(out, hash, back) {
   state.person = hash;
   out.parentElement?.classList.add("in-person");
-  const goBack = () => { state.person = null; out.parentElement?.classList.remove("in-person"); back(); animateIn(out, "pop-in"); window.scrollTo(0, 0); };
+  const goBack = () => { state.person = null; out.parentElement?.classList.remove("in-person"); back(); animateIn(out, "pop-in"); app.scrollTo(0, 0); };
   fill(out, h("div", { class: "loading" }, h("i"), h("i"), h("i")));
   let p;
   try {
@@ -724,7 +724,7 @@ async function openPerson(out, hash, back) {
     h("p", { class: "hint" }, t("p.device")),
   );
   animateIn(out, "push-in");
-  window.scrollTo(0, 0);
+  app.scrollTo(0, 0);
 }
 
 // ── screens ──

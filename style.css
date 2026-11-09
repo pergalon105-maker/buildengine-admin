@@ -41,15 +41,24 @@
 html, body { margin: 0; background: var(--bg); color: var(--text); }
 html { overscroll-behavior-y: none; --dir: 1; }
 html[dir="rtl"] { --dir: -1; }
+/* The page itself never scrolls: only <main> does, and the tab bar is a normal block under it.
+   On an iPhone home-screen app this keeps the bar from jumping when screens change height. */
+html, body { height: 100%; overflow: hidden; }
 body {
+  position: fixed; inset: 0; display: flex; flex-direction: column;
   font: 15px/1.45 -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
-  padding: env(safe-area-inset-top) env(safe-area-inset-right) 0 env(safe-area-inset-left);
+  padding: env(safe-area-inset-top) 0 0;
   -webkit-font-smoothing: antialiased;
   -webkit-text-size-adjust: 100%;
 }
 html.big body { font-size: 17px; }
 html.big main { zoom: 1.1; }
-main { max-width: 640px; margin: 0 auto; padding: 8px 16px calc(96px + env(safe-area-inset-bottom)); }
+main {
+  flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; -webkit-overflow-scrolling: touch; overscroll-behavior-y: contain;
+  padding: 8px max(16px, calc((100% - 608px) / 2), env(safe-area-inset-right)) 28px max(16px, calc((100% - 608px) / 2), env(safe-area-inset-left));
+}
+body:not(.authed) main { padding-bottom: calc(28px + env(safe-area-inset-bottom)); }
+body.selecting main { padding-bottom: 150px; }
 h1, h2, p { margin: 0; }
 button { font: inherit; color: inherit; cursor: pointer; touch-action: manipulation; -webkit-user-select: none; user-select: none; }
 .btn, .ghost, .danger, .fchip, .led, .icon, .seg button, .link, .back, .sm { transition: transform .18s cubic-bezier(.3, .7, .4, 1), background-color .2s, color .2s, border-color .2s, opacity .2s; }
@@ -77,11 +86,10 @@ button { font: inherit; color: inherit; cursor: pointer; touch-action: manipulat
 /* ── bottom tab bar ── */
 body:not(.authed) .bar { display: none; }
 .bar {
-  position: fixed; inset-inline: 0; bottom: 0; z-index: 5;
-  transition: transform .3s cubic-bezier(.2, .8, .2, 1);
+  position: relative; flex: none; z-index: 5;
   display: grid; grid-template-columns: repeat(5, 1fr);
   padding: 6px max(8px, env(safe-area-inset-left)) calc(6px + env(safe-area-inset-bottom));
-  background: var(--glass); -webkit-backdrop-filter: saturate(1.6) blur(20px); backdrop-filter: saturate(1.6) blur(20px);
+  background: var(--bg);
   border-top: 1px solid var(--line);
 }
 .bar .pill { position: absolute; left: 0; top: 4px; height: 50px; border-radius: 14px; background: color-mix(in srgb, var(--accent) 13%, transparent); pointer-events: none; }
@@ -229,10 +237,10 @@ label { display: block; color: var(--muted); font-size: 13px; margin: 16px 0 6px
 .picked { background: color-mix(in srgb, var(--accent) 8%, transparent); }
 .picked .tick { border-color: transparent; background: var(--grad); }
 .picked .tick::after { content: "✓"; display: block; text-align: center; font: 800 13px/18px var(--num); color: #0d1015; }
-body.selecting .bar { transform: translateY(110%); }
+
 .bulkbar { display: none; }
 .bulkbar.on {
-  display: block; animation: slideUp .3s cubic-bezier(.2, .8, .2, 1); position: fixed; inset-inline: 0; bottom: 0; z-index: 6;
+  display: block; animation: slideUp .3s cubic-bezier(.2, .8, .2, 1); position: fixed; inset-inline: 0; bottom: 0; z-index: 6; background: var(--bg) !important;
   padding: 12px 16px calc(12px + env(safe-area-inset-bottom));
   background: var(--glass); -webkit-backdrop-filter: blur(20px); backdrop-filter: blur(20px); border-top: 1px solid var(--line);
 }
