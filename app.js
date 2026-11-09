@@ -4,7 +4,7 @@
 // Notes, marks, "seen" markers and settings live only in this phone's localStorage.
 "use strict";
 
-const VERSION = "2.3";
+const VERSION = "2.4";
 const API = "https://hvleqwnawexcyxiciehu.supabase.co/functions/v1/admin";
 const KEY = "be.admin.session";
 const PREF = "be.admin.prefs";
@@ -1118,6 +1118,20 @@ async function checkUpdate() {
 }
 document.addEventListener("visibilitychange", () => { if (!document.hidden) checkUpdate(); });
 checkUpdate();
+
+// ── full-screen height: an iPhone home-screen app reports a viewport shorter than the screen,
+// which left an empty strip under the tab bar; use the real screen height there ──
+function fitHeight() {
+  let hgt = window.innerHeight;
+  if (navigator.standalone) {
+    const land = window.matchMedia("(orientation: landscape)").matches;
+    hgt = Math.max(hgt, land ? Math.min(screen.width, screen.height) : Math.max(screen.width, screen.height));
+  }
+  document.documentElement.style.setProperty("--app-h", `${hgt}px`);
+}
+fitHeight();
+window.addEventListener("resize", fitHeight);
+window.addEventListener("orientationchange", () => setTimeout(fitHeight, 300));
 
 applyPrefs();
 if (localStorage.getItem(KEY)) renderMain("summary");

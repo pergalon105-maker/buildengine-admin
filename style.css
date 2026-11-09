@@ -45,7 +45,8 @@ html[dir="rtl"] { --dir: -1; }
    On an iPhone home-screen app this keeps the bar from jumping when screens change height. */
 html, body { height: 100%; overflow: hidden; }
 body {
-  position: fixed; inset: 0; display: flex; flex-direction: column;
+  position: fixed; top: 0; left: 0; right: 0; display: flex; flex-direction: column;
+  height: 100vh; height: 100lvh; height: var(--app-h, 100lvh);
   font: 15px/1.45 -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
   padding: env(safe-area-inset-top) 0 0;
   -webkit-font-smoothing: antialiased;
