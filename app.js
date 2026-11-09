@@ -4,7 +4,7 @@
 // Notes, marks, "seen" markers and settings live only in this phone's localStorage.
 "use strict";
 
-const VERSION = "2.0";
+const VERSION = "2.1";
 const API = "https://hvleqwnawexcyxiciehu.supabase.co/functions/v1/admin";
 const KEY = "be.admin.session";
 const PREF = "be.admin.prefs";
@@ -100,8 +100,9 @@ const byPlatform = (p) => ["ios", "android", "web"].filter((k) => p[k]).map((k) 
 function toast(text, ms = 2200) {
   document.querySelectorAll(".toast").forEach((x) => x.remove());
   const el = h("div", { class: "toast", role: "status" }, text);
+  el.close = () => { el.classList.add("out"); setTimeout(() => el.remove(), 220); };
   document.body.append(el);
-  if (ms) setTimeout(() => el.remove(), ms);
+  if (ms) setTimeout(el.close, ms);
   return el;
 }
 const errText = (e) => (["WRONG", "LOCKED", "NOT_FOUND", "SHORT"].includes(e.message) ? t(`err.${e.message}`) : e.message);
@@ -153,21 +154,37 @@ function applyPrefs() {
 
 // ── segmented control ──
 function seg(options, value, onChange) {
-  const box = h("div", { class: "seg", role: "radiogroup" });
+  const thumb = h("span", { class: "thumb", "aria-hidden": "true" });
+  const box = h("div", { class: "seg", role: "radiogroup" }, thumb);
+  const place = (animate) => {
+    const on = box.querySelector("button.on");
+    if (!on || !box.isConnected) return;
+    thumb.classList.toggle("anim", animate && !calm());
+    thumb.style.width = `${on.offsetWidth}px`;
+    thumb.style.transform = `translateX(${on.offsetLeft}px)`;
+    thumb.classList.add("shown");
+  };
   for (const [v, label] of options) {
     const b = h("button", { class: v === value ? "on" : null, role: "radio", "aria-checked": String(v === value), onclick: () => {
+      if (b.classList.contains("on")) return;
       box.querySelectorAll("button").forEach((x) => { x.classList.remove("on"); x.setAttribute("aria-checked", "false"); });
       b.classList.add("on"); b.setAttribute("aria-checked", "true");
+      place(true);
       onChange(v);
     } }, label);
     box.append(b);
   }
+  // measure once it is on the page
+  const wait = (n = 0) => requestAnimationFrame(() => (box.isConnected ? place(false) : n < 30 && wait(n + 1)));
+  wait();
+  new ResizeObserver(() => place(false)).observe(box);
   return box;
 }
 
 // ── login ──
 function renderLogin(message = "") {
   stopSelecting();
+  document.body.classList.remove("authed");
   const err = h("div", { class: "err", role: "alert" }, message);
   const pass = h("input", { type: "password", autocomplete: "current-password", name: "password", placeholder: t("login.pass") });
   const code = h("input", { type: "text", inputmode: "numeric", autocomplete: "one-time-code", name: "code", maxlength: "6", placeholder: t("login.code.ph") });
@@ -211,39 +228,115 @@ let badges = {};
 let selecting = false;
 const state = { q: "", person: null };
 
+const calm = () => window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+const sleep = (ms) => new Promise((r) => setTimeout(r, calm() ? 0 : ms));
+/** Restart a CSS entrance animation on an element. */
+function animateIn(el, cls) {
+  if (!el) return;
+  el.classList.remove("push-in", "pop-in", "fade-in");
+  void el.offsetWidth;
+  el.classList.add(cls);
+}
+const skeleton = () => h("div", { class: "skel", "aria-label": "…" }, h("i", { class: "s1" }), h("i", { class: "s2" }), h("i", { class: "s3" }), h("i", { class: "s3" }));
+
+// ── the tab bar is built once and only moves its highlight (never re-created) ──
+let barEl = null;
+function ensureBar() {
+  if (barEl) return barEl;
+  barEl = h("nav", { class: "bar" }, h("span", { class: "pill", "aria-hidden": "true" }), BAR.map((id) =>
+    h("button", { "data-tab": id, onclick: () => {
+      if (selecting) return;
+      if (id === current && !state.person && !MORE.includes(current)) { window.scrollTo({ top: 0, behavior: calm() ? "auto" : "smooth" }); return; }
+      state.person = null; state.q = "";
+      renderMain(id);
+    } }, h("span", { class: "bi" }, icon(id)), h("span", { class: "bl" }, t(`tab.${id}`)))));
+  document.body.append(barEl);
+  window.addEventListener("resize", () => movePill(false));
+  return barEl;
+}
+function movePill(animate) {
+  const bar = ensureBar();
+  const target = bar.querySelector("button.on");
+  const pill = bar.querySelector(".pill");
+  if (!target) return;
+  pill.classList.toggle("anim", !!animate && !calm());
+  pill.style.width = `${target.offsetWidth - 16}px`;
+  pill.style.transform = `translateX(${target.offsetLeft + 8}px)`;
+}
+function updateBar() {
+  const bar = ensureBar();
+  const first = !document.body.classList.contains("authed");
+  document.body.classList.add("authed");
+  const active = MORE.includes(current) ? "more" : current;
+  bar.querySelectorAll("button").forEach((b) => {
+    const on = b.dataset.tab === active;
+    if (on && !b.classList.contains("on") && !first) animateIn(b.querySelector(".bi"), "fade-in");
+    b.classList.toggle("on", on);
+    if (on) b.setAttribute("aria-current", "page"); else b.removeAttribute("aria-current");
+    b.querySelector(".bl").textContent = t(`tab.${b.dataset.tab}`);
+  });
+  requestAnimationFrame(() => movePill(!first));
+}
+
 function renderMain(tab, opts = {}) {
+  const prev = current;
   current = tab;
   stopSelecting();
-  const y = opts.keepScroll ? window.scrollY : 0;
-  const body = h("div", { class: "view" }, h("div", { class: "loading" }, h("i"), h("i"), h("i")));
+  updateBar();
+  if (opts.soft && prev === tab && document.querySelector(".view")) { softRender(tab, opts); return; }
   const inMore = MORE.includes(tab);
-  const stamp = h("span", { class: "stamp" });
-  show(
+  const dir = inMore && prev === "more" ? "push-in" : tab === "more" && MORE.includes(prev) ? "pop-in" : "fade-in";
+  const body = h("div", { class: "view" }, skeleton());
+  show(h("div", { class: `screen ${prev === tab ? "" : dir}` },
     h("header", { class: "top" },
       inMore ? h("button", { class: "back", onclick: () => renderMain("more") }, t("back.more")) : h("img", { class: "logo", src: "icon-180.png", alt: "" }),
       h("span", { class: "grow" }),
-      stamp,
+      h("span", { class: "stamp" }),
       tab !== "settings" && tab !== "more" ? h("button", { class: "icon", "aria-label": t("refresh"), onclick: refresh }, icon("refresh")) : null),
     h("h1", { class: "big-title" }, t(`tab.${tab}`)),
-    body,
-    h("nav", { class: "bar" }, BAR.map((id) => {
-      const on = id === tab || (id === "more" && inMore);
-      return h("button", { class: on ? "on" : null, "data-tab": id, "aria-current": on ? "page" : null, onclick: () => { state.person = null; state.q = ""; renderMain(id); } },
-        h("span", { class: "bi" }, icon(id)), h("span", { class: "bl" }, t(`tab.${id}`)));
-    })),
-  );
+    body));
+  window.scrollTo(0, 0);
   paintBadges();
   Promise.resolve(VIEWS[tab](body, opts))
-    .then(() => { if (y) window.scrollTo(0, y); else window.scrollTo(0, 0); stamp.textContent = t("updated", { time: clock() }); })
+    .then(() => { if (current === tab) { setStamp(); body.classList.add("ready"); } })
     .catch((e) => {
       if (e.message !== "NO_SESSION") fill(body, empty(errText(e), "⚠"), h("div", { class: "center" }, h("button", { class: "ghost", onclick: () => renderMain(tab) }, t("retry"))));
     });
 }
+const setStamp = () => { const s = document.querySelector(".stamp"); if (s) s.textContent = t("updated", { time: clock() }); };
+
+/** Refresh in place: the old screen stays until the new data is ready, then swaps without a jump. */
+let softBusy = false;
+async function softRender(tab, opts) {
+  if (softBusy) return;
+  softBusy = true;
+  const old = document.querySelector(".view");
+  const spin = document.querySelector(".top .icon");
+  spin?.classList.add("spin");
+  document.querySelector(".ptr")?.classList.add("busy");
+  const y = window.scrollY;
+  const fresh = h("div", { class: "view ready soft" });
+  try {
+    await VIEWS[tab](fresh, opts);
+    if (current === tab && old.isConnected) {
+      if (fresh.contains(fresh.querySelector(".bulkbar"))) stopSelecting();
+      old.replaceWith(fresh);
+      window.scrollTo(0, y);
+      setStamp();
+    }
+  } catch (e) {
+    if (e.message !== "NO_SESSION") toast(errText(e));
+  } finally {
+    softBusy = false;
+    spin?.classList.remove("spin");
+    document.querySelector(".ptr")?.classList.remove("busy");
+  }
+}
 
 function refresh() {
   if (!localStorage.getItem(KEY) || current === "settings" || current === "more") return;
-  if (current === "search") renderMain("search", { q: state.q, person: state.person, keepScroll: true });
-  else renderMain(current, { keepScroll: true });
+  if (current === "search") renderMain("search", { q: state.q, person: state.person, soft: true });
+  else renderMain(current, { soft: true });
 }
 
 // ── badges & "new" markers ──
@@ -292,7 +385,7 @@ function setupAutoRefresh() {
   if (prefs.refresh > 0) timer = setInterval(tick, prefs.refresh * 60000);
 }
 function tick() {
-  if (document.hidden || selecting || !localStorage.getItem(KEY) || !document.querySelector(".bar")) return;
+  if (document.hidden || selecting || !localStorage.getItem(KEY) || !document.body.classList.contains("authed")) return;
   const a = document.activeElement;
   if (a && /INPUT|TEXTAREA|SELECT/.test(a.tagName)) return;
   // lists keep their filters: only refresh the screens without any, badges everywhere
@@ -307,34 +400,49 @@ document.addEventListener("visibilitychange", () => {
 
 // ── pull to refresh (a home-screen app has none of its own) ──
 (() => {
-  const ptr = h("div", { class: "ptr", "aria-hidden": "true" }, "↻");
+  const ptr = h("div", { class: "ptr", "aria-hidden": "true" }, icon("refresh"));
   document.body.append(ptr);
   let y0 = null, dy = 0;
   document.addEventListener("touchstart", (e) => {
-    y0 = window.scrollY <= 0 && e.touches.length === 1 && document.querySelector(".bar") && !selecting ? e.touches[0].clientY : null;
+    y0 = window.scrollY <= 0 && e.touches.length === 1 && document.body.classList.contains("authed") && !selecting && !softBusy ? e.touches[0].clientY : null;
     dy = 0;
   }, { passive: true });
   document.addEventListener("touchmove", (e) => {
     if (y0 == null) return;
     dy = Math.max(0, e.touches[0].clientY - y0);
     const d = Math.min(dy, 110);
+    ptr.classList.add("drag");
     ptr.style.transform = `translate(-50%, ${d * 0.8 - 50}px) rotate(${d * 3}deg)`;
     ptr.classList.toggle("ready", dy > 80);
   }, { passive: true });
   document.addEventListener("touchend", () => {
-    if (y0 != null && dy > 80) refresh();
+    const go = y0 != null && dy > 80;
     y0 = null; dy = 0;
+    ptr.classList.remove("drag", "ready");
     ptr.style.transform = "";
-    ptr.classList.remove("ready");
+    if (go) refresh();
   });
 })();
 
 // ── deleting ──
+// the card the last tapped button belongs to, so a deletion can fade it out first
+let lastItem = null;
+document.addEventListener("click", (e) => { lastItem = e.target.closest?.(".item") || null; }, true);
+async function vanish(nodes) {
+  nodes = [...nodes].filter(Boolean);
+  if (!nodes.length) return;
+  nodes.forEach((n) => { n.style.height = `${n.offsetHeight}px`; });
+  void document.body.offsetHeight;
+  nodes.forEach((n) => n.classList.add("leaving"));
+  await sleep(280);
+}
 async function remove(type, id, what, after) {
+  const node = lastItem;
   if (!confirm(t("del.q", { what }))) return;
   try {
     await call("delete", { type, id });
     toast(t("deleted"));
+    await vanish([node]);
     after();
   } catch (e) {
     if (e.message !== "NO_SESSION") alert(errText(e));
@@ -350,17 +458,29 @@ async function removeMany(entries, question, twice) {
   for (const [i, e] of entries.entries()) {
     bar.textContent = t("bulk.progress", { i: i + 1, n: entries.length });
     try { await call("delete", e); ok++; } catch (err) {
-      if (err.message === "NO_SESSION") { bar.remove(); return false; }
+      if (err.message === "NO_SESSION") { bar.close(); return false; }
       if (err.message === "NOT_FOUND") ok++; else fail++;
     }
   }
-  bar.remove();
+  bar.close();
   toast(fail ? t("bulk.partial", { ok, fail }) : t("bulk.done", { n: ok }), 3000);
   return true;
 }
 const uniq = (entries) => [...new Map(entries.map((e) => [`${e.type}:${e.id}`, e])).values()];
 
 // ── small pieces ──
+/** Today's number counts up once when the summary opens. */
+function countUp(el, target) {
+  if (!el || calm() || target < 2) return;
+  const t0 = performance.now(), dur = 700;
+  const step = (now) => {
+    const k = Math.min(1, (now - t0) / dur);
+    el.textContent = num(Math.round(target * (1 - Math.pow(1 - k, 3))));
+    if (k < 1) requestAnimationFrame(step);
+  };
+  el.textContent = num(0);
+  requestAnimationFrame(step);
+}
 function stat(n, label, sub, tone, trendNode) {
   return h("div", { class: `stat${tone ? " " + tone : ""}` },
     h("div", { class: "n" }, n), h("div", { class: "l" }, label), sub ? h("div", { class: "s" }, sub) : null, trendNode || null);
@@ -397,7 +517,7 @@ function listTool(box, cfg) {
   input.addEventListener("input", () => { st.q = input.value.trim().toLowerCase(); draw(); });
   const chipRow = cfg.chips?.length ? h("div", { class: "fchips" }) : null;
   const sortSel = cfg.sorts?.length > 1
-    ? h("select", { class: "sort", "aria-label": t("sort"), onchange: (e) => { st.sort = e.target.value; draw(); } }, cfg.sorts.map((s) => h("option", { value: s.id }, s.label)))
+    ? h("select", { class: "sort", "aria-label": t("sort"), onchange: (e) => { st.sort = e.target.value; draw(); animateIn(list, "fade-in"); } }, cfg.sorts.map((s) => h("option", { value: s.id }, s.label)))
     : null;
   const bulkBar = h("div", { class: "bulkbar" });
   const selBtn = cfg.bulk?.length ? h("button", { class: "ghost sm", onclick: () => toggleSel() }, t("select")) : null;
@@ -408,7 +528,7 @@ function listTool(box, cfg) {
     fill(chipRow, [{ id: "all", label: t("all") }, ...cfg.chips].map((c) => {
       const n = c.id === "all" ? cfg.items.length : cfg.items.filter(c.test).length;
       if (!n && c.id !== "all") return null;
-      return h("button", { class: `fchip${st.chip === c.id ? " on" : ""}`, onclick: () => { st.chip = c.id; drawChips(); draw(); } }, c.label, h("span", { class: "cnt" }, n));
+      return h("button", { class: `fchip${st.chip === c.id ? " on" : ""}`, onclick: () => { st.chip = c.id; drawChips(); draw(); animateIn(list, "fade-in"); } }, c.label, h("span", { class: "cnt" }, n));
     }));
   }
   function visible() {
@@ -459,7 +579,7 @@ function listTool(box, cfg) {
         h("button", { class: "link", onclick: () => toggleSel(false) }, t("cancel"))),
       h("div", { class: "bulk-acts" }, cfg.bulk.map((b) => h("button", {
         class: b.danger ? "danger" : "ghost", disabled: !chosen.length,
-        onclick: async () => { if (await b.act(chosen)) { toggleSel(false); cfg.reload(); } },
+        onclick: async () => { if (await b.act(chosen)) { await vanish(list.querySelectorAll(".picked")); toggleSel(false); cfg.reload(); } },
       }, b.label))));
   }
   fill(box,
@@ -492,7 +612,7 @@ function toggleTag(hash, tag) {
 async function openPerson(out, hash, back) {
   state.person = hash;
   out.parentElement?.classList.add("in-person");
-  const goBack = () => { state.person = null; out.parentElement?.classList.remove("in-person"); back(); };
+  const goBack = () => { state.person = null; out.parentElement?.classList.remove("in-person"); back(); animateIn(out, "pop-in"); window.scrollTo(0, 0); };
   fill(out, h("div", { class: "loading" }, h("i"), h("i"), h("i")));
   let p;
   try {
@@ -603,6 +723,7 @@ async function openPerson(out, hash, back) {
       mod.some(Boolean) ? h("p", { class: "hint" }, t("p.mod.hint")) : null),
     h("p", { class: "hint" }, t("p.device")),
   );
+  animateIn(out, "push-in");
   window.scrollTo(0, 0);
 }
 
@@ -671,6 +792,7 @@ const VIEWS = {
       h("p", { class: "hint" }, t("sum.note")),
     );
     box.querySelectorAll("[data-w]").forEach((el) => (el.style.width = `${el.dataset.w}%`));
+    if (!box.classList.contains("soft")) countUp(box.querySelector(".hero-n"), Number(s.today.total) || 0);
   },
 
   async visits(box) {
@@ -763,6 +885,7 @@ const VIEWS = {
           h("div", { class: "head" }, h("span", { class: "who" }, x.name), h("span", { class: "money" }, money(x.amount_ils)), h("span", { class: "when" }, when(x.created_at))),
           h("div", { class: "actions" }, h("button", { class: "danger sm", onclick: () => remove("tip", x.id, t("what.tipName", { name: x.name }), run) }, t("del.wall")))))));
         results();
+        animateIn(out, "fade-in");
       } catch (e) {
         if (e.message !== "NO_SESSION") fill(out, empty(errText(e), "⚠"));
       }
@@ -778,7 +901,7 @@ const VIEWS = {
   async reports(box) {
     const r = await call("reports");
     const prev = markSeen("reports", r.reports);
-    const again = () => renderMain("reports", { keepScroll: true });
+    const again = () => renderMain("reports", { soft: true });
     const per = new Map();
     for (const x of r.reports) per.set(x.target_id, (per.get(x.target_id) || 0) + 1);
     const content = (x) => ({ type: x.target_type === "build" ? "build" : "comment", id: x.target_id });
@@ -822,7 +945,7 @@ const VIEWS = {
   async feedback(box) {
     const r = await call("feedback");
     const prev = markSeen("feedback", r.feedback);
-    const again = () => renderMain("feedback", { keepScroll: true });
+    const again = () => renderMain("feedback", { soft: true });
     const pages = [...new Set(r.feedback.map((f) => f.page))];
     listTool(box, {
       head: h("p", { class: "hint top-hint" }, t("fb.hint")),
@@ -853,7 +976,7 @@ const VIEWS = {
   async ai(box) {
     const r = await call("ai");
     const prev = markSeen("ai", r.ratings);
-    const again = () => renderMain("ai", { keepScroll: true });
+    const again = () => renderMain("ai", { soft: true });
     const good = (x) => x.vote === "up" || x.vote === 1 || x.vote === true;
     const up = r.ratings.filter(good).length;
     const pct = r.ratings.length ? Math.round((100 * up) / r.ratings.length) : null;
@@ -888,7 +1011,7 @@ const VIEWS = {
   async crashes(box) {
     const r = await call("crashes");
     const prev = markSeen("crashes", r.crashes, "last_seen");
-    const again = () => renderMain("crashes", { keepScroll: true });
+    const again = () => renderMain("crashes", { soft: true });
     const forClaude = (c) => [
       `${t("cr.title")} (×${c.count}, ${t("cr.devices", { n: c.devices })}${c.platform ? ", " + tk("platform", c.platform) : ""})`,
       c.message,
