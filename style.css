@@ -377,3 +377,19 @@ html[dir="rtl"] .track, html[dir="rtl"] .split, html[dir="rtl"] .meter { transfo
 .probe { position: absolute; top: 0; width: 1px; visibility: hidden; pointer-events: none; }
 .probe.vh { height: 100vh; }
 .probe.dvh { height: 100dvh; }
+
+/* price check run */
+.prun { border-radius: 18px; padding: 14px 16px; background: var(--panel); border: 1px solid var(--line); margin-bottom: 12px; }
+.prun-top { display: flex; align-items: center; gap: 8px; }
+.prun-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--muted); flex: none; }
+.prun.run .prun-dot { background: var(--cyan); animation: pulseDot 1.4s ease-in-out infinite; }
+.prun.ok .prun-dot { background: var(--green); }
+.prun.stop { border-color: var(--red); }
+.prun.stop .prun-dot { background: var(--red); }
+.prun .meter { margin: 12px 0 8px; }
+.prun-foot { display: flex; gap: 8px; font: 600 13px var(--num); }
+.prun-alert { margin-top: 10px; padding: 10px 12px; border-radius: 12px; background: var(--danger-bg); color: var(--red); font-weight: 600; font-size: 14px; }
+@keyframes pulseDot { 50% { box-shadow: 0 0 0 6px color-mix(in srgb, var(--cyan) 20%, transparent); } }
+.prcat-h { display: flex; justify-content: space-between; gap: 8px; margin-bottom: 6px; }
+.prcat .track { height: 6px; margin-bottom: 4px; }
+.mi-prices { background: #12a466; }

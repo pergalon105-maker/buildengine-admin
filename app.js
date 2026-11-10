@@ -4,7 +4,7 @@
 // Notes, marks, "seen" markers and settings live only in this phone's localStorage.
 "use strict";
 
-const VERSION = "2.5";
+const VERSION = "2.6";
 const API = "https://hvleqwnawexcyxiciehu.supabase.co/functions/v1/admin";
 const KEY = "be.admin.session";
 const PREF = "be.admin.prefs";
@@ -32,7 +32,7 @@ const tk = (prefix, k) => { const key = `${prefix}.${k}`; const s = t(key); retu
 
 // ── navigation ──
 const BAR = ["summary", "visits", "search", "reports", "more"];
-const MORE = ["feedback", "ai", "crashes", "log", "settings"];
+const MORE = ["prices", "feedback", "ai", "crashes", "log", "settings"];
 const ICONS = {
   summary: "M4 4h7v7H4zM13 4h7v7h-7zM4 13h7v7H4zM13 13h7v7h-7z",
   visits: "M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM2 21v-1a6 6 0 0 1 12 0v1M16 3.5a4 4 0 0 1 0 7.5M22 21v-1a6 6 0 0 0-4-5.6",
@@ -43,6 +43,7 @@ const ICONS = {
   ai: "M12 3l2 6 6 2-6 2-2 6-2-6-6-2 6-2z",
   crashes: "M12 3l10 18H2zM12 10v4M12 17.5v.5",
   log: "M8 6h13M8 12h13M8 18h13M3.5 6h.5M3.5 12h.5M3.5 18h.5",
+  prices: "M3 12V4h8l10 10-8 8L3 12zM7.5 8.5h.01",
   settings: "M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7zM12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9 7 7M17 17l2.1 2.1M4.9 19.1 7 17M17 7l2.1-2.1",
   refresh: "M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7",
 };
@@ -364,8 +365,15 @@ function paintBadges() {
   if (navigator.setAppBadge) (total ? navigator.setAppBadge(total) : navigator.clearAppBadge()).catch(() => {});
 }
 async function bgBadges() {
-  const [s, fb, ai] = await Promise.allSettled([call("summary"), call("feedback"), call("ai")]);
+  const [s, fb, ai, pr] = await Promise.allSettled([call("summary"), call("feedback"), call("ai"), call("prices")]);
   setBadges(s.value, fb.value, ai.value);
+  priceBadge(pr.value);
+}
+/** A price check that stopped on a robot check needs the owner: show it on the tab. */
+function priceBadge(pr) {
+  if (!pr) return;
+  badges.prices = pr.current?.status === "paused_captcha" ? 1 : 0;
+  paintBadges();
 }
 /** Remember the newest item of a tab as seen; returns the previous mark for "new" chips. */
 function markSeen(tab, list, field = "created_at") {
@@ -739,6 +747,7 @@ const VIEWS = {
   async summary(box) {
     const [s, v, fb, ai] = await Promise.all([call("summary"), call("visits").catch(() => null), call("feedback").catch(() => null), call("ai").catch(() => null)]);
     setBadges(s, fb, ai);
+    call("prices").then(priceBadge).catch(() => {});
     const unknown = ai?.unknown?.length || 0;
     const queues = [
       ["reports", s.reports, t("q.reports")],
@@ -1049,6 +1058,77 @@ const VIEWS = {
       bulk: [{ label: t("cr.fixed"), act: (xs) => removeMany(xs.map((c) => ({ type: "crash", id: c.id })), t("bulk.fixed.q", { n: xs.length })) }],
       foot: h("p", { class: "hint" }, t("cr.hint")),
     });
+  },
+
+  async prices(box) {
+    let r;
+    try {
+      r = await call("prices");
+    } catch (e) {
+      if (e.message === "NO_SESSION") throw e;
+      // the server part isn't installed yet: explain instead of showing a raw error
+      fill(box, h("div", { class: "panel pad stack" },
+        h("b", {}, t("pr.setup.title")),
+        h("p", { class: "meta" }, t("pr.setup.text")),
+        h("p", { class: "hint" }, `${t("pr.setup.err")}: ${errText(e)}`)));
+      return;
+    }
+    priceBadge(r);
+    const c = r.current;
+    if (!c) { fill(box, empty(t("pr.none"), "◇")); return; }
+    const cats = c.categories || [];
+    const k = c.counts || {};
+    const total = cats.reduce((n, x) => n + (Number(x.total) || 0), 0);
+    const checked = cats.reduce((n, x) => n + (Number(x.checked) || 0), 0);
+    const pct = total ? Math.round((100 * checked) / total) : (c.status === "done" ? 100 : 0);
+    const changes = [...(r.changes || [])].sort((a, b) => Math.abs(b.pct || 0) - Math.abs(a.pct || 0)).slice(0, 20);
+    const runs = (r.runs || []).slice(0, 10).reverse();
+    const statusCls = { running: "run", done: "ok", paused_captcha: "stop", failed: "stop" }[c.status] || "";
+    const sign = (n) => (n > 0 ? `+${n}` : String(n));
+
+    fill(box,
+      h("section", { class: `prun ${statusCls}` },
+        h("div", { class: "prun-top" },
+          h("span", { class: "prun-dot" }),
+          h("b", {}, tk("pr.st", c.status)),
+          h("span", { class: "grow" }),
+          h("span", { class: "meta" }, tk("store", c.store || "ksp"))),
+        c.status === "paused_captcha" ? h("p", { class: "prun-alert" }, t("pr.captcha")) : null,
+        c.step && c.status === "running" ? h("p", { class: "meta" }, t("pr.step", { step: c.step })) : null,
+        h("div", { class: "meter" }, h("i", { "data-w": pct })),
+        h("div", { class: "prun-foot" },
+          h("span", {}, t("pr.progress", { n: num(checked), m: num(total), p: pct })),
+          h("span", { class: "grow" }),
+          h("span", { class: "meta" }, c.finished_at ? t("pr.finished", { d: when(c.finished_at) }) : t("pr.started", { d: when(c.started_at) }))),
+        c.message ? h("p", { class: "hint" }, c.message) : null),
+      h("div", { class: "grid" },
+        stat(num(k.checked ?? checked), t("pr.checked")),
+        stat(num((k.changed_up || 0) + (k.changed_down || 0)), t("pr.changed"), `▲ ${k.changed_up || 0}  ▼ ${k.changed_down || 0}`),
+        stat(num(k.in_stock || 0), t("pr.instock"), k.out_of_stock ? t("pr.outstock", { n: k.out_of_stock }) : null, "good"),
+        stat(num(k.doubtful || 0), t("pr.doubtful"), k.errors ? t("pr.errors", { n: k.errors }) : null, k.doubtful ? "warn" : null)),
+      cats.length ? [sect(t("pr.cats")), h("div", { class: "panel" }, cats.map((x) => {
+        const p = x.total ? Math.round((100 * x.checked) / x.total) : 0;
+        return h("div", { class: "row prcat" },
+          h("div", { class: "grow" },
+            h("div", { class: "prcat-h" }, h("b", {}, x.name || x.key), h("span", { class: "meta" }, `${num(x.checked)} / ${num(x.total)}`)),
+            h("div", { class: "track" }, h("i", { class: "ios", "data-w": p })),
+            h("div", { class: "meta" }, [x.changed ? t("pr.cat.changed", { n: x.changed }) : null, x.in_stock != null ? t("pr.cat.instock", { n: x.in_stock }) : null, x.doubtful ? t("pr.cat.doubtful", { n: x.doubtful }) : null].filter(Boolean).join(" · "))));
+      }))] : null,
+      changes.length ? [sect(t("pr.bigchanges")), h("div", { class: "list" }, changes.map((x) => h("div", { class: "item" },
+        h("div", { class: "head" },
+          h("span", { class: "who" }, x.part || x.name),
+          h("span", { class: `chip ${x.pct > 0 ? "red" : "green"}` }, `${sign(Math.round(x.pct))}%`)),
+        h("div", { class: "meta" }, `${money(x.old_price)} → ${money(x.new_price)}${x.category ? "   " + x.category : ""}`))))] : null,
+      (r.doubtful || []).length ? [sect(t("pr.doubtlist")), h("div", { class: "list" }, r.doubtful.slice(0, 30).map((x) => h("div", { class: "item" },
+        h("div", { class: "who" }, x.name), h("div", { class: "meta" }, x.reason || ""))))] : null,
+      runs.length > 1 ? [sect(t("pr.history")), h("div", { class: "panel pad" },
+        columns(runs.map((x) => Number(x.changed) || 0), runs.map((x) => (x.started_at ? shortDay(String(x.started_at).slice(0, 10)) : "")), true),
+        h("p", { class: "hint" }, t("pr.history.hint")))] : null,
+      h("p", { class: "hint" }, t("pr.note")),
+    );
+    box.querySelectorAll("[data-w]").forEach((el) => (el.style.width = `${el.dataset.w}%`));
+    // follow a running check without touching anything
+    if (c.status === "running") setTimeout(() => { if (current === "prices" && !document.hidden) refresh(); }, 30000);
   },
 
   async log(box) {
