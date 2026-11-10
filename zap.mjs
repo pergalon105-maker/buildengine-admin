@@ -15,10 +15,35 @@ async function rpc(method, params, notify = false) {
   const data = t.includes("data:") ? t.split("\n").filter((l) => l.startsWith("data:")).map((l) => l.slice(5)).pop() : t;
   try { return { status: r.status, json: JSON.parse(data) }; } catch { return { status: r.status, text: t.slice(0, 500) }; }
 }
-const card = await fetch("https://mcp.zap.co.il/.well-known/mcp/server-card.json").then((r) => r.text()).catch((e) => "ERR " + e.message);
-console.log("CARD", card.slice(0, 3000));
-const init = await rpc("initialize", { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "buildengine-pricecheck-test", version: "0.1" } });
-console.log("INIT", init.status, JSON.stringify(init.json || init.text).slice(0, 600));
+
+const call = async (name, args) => {
+  const r = await rpc("tools/call", { name, arguments: args });
+  const c = r.json?.result?.structuredContent || (() => { try { return JSON.parse(r.json?.result?.content?.[0]?.text || "null"); } catch { return r.json?.result?.content?.[0]?.text; } })();
+  return c;
+};
+await rpc("initialize", { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "buildengine-pricecheck-test", version: "0.1" } });
 await rpc("notifications/initialized", null, true);
-const tools = await rpc("tools/list", {});
-console.log("TOOLS", tools.status, JSON.stringify((tools.json?.result?.tools || []).map((t) => ({ name: t.name, desc: (t.description || "").slice(0, 160), args: Object.keys(t.inputSchema?.properties || {}) })), null, 1).slice(0, 5000) || tools.text);
+const PARTS = ["RTX 5060 Ti 16GB", "RTX 5070", "Ryzen 7 7800X3D", "Ryzen 5 7600"];
+const WANT = /KSP|ק\.?ס\.?פ|אייבורי|ivory|TMS|טי אם אס|באג|bug/i;
+let md = "## Тест цен через Zap\n";
+let first = true;
+for (const q of PARTS) {
+  const s = await call("zap_search_products", { query: q, page_size: 3 });
+  if (first) { console.log("RAW-SEARCH", JSON.stringify(s).slice(0, 1500)); }
+  const models = s?.models || s?.results || s?.items || [];
+  const m = models[0];
+  if (!m) { md += `\n### ${q}\nне найдено (${s?.status || "?"})\n`; continue; }
+  const id = m.model_id || m.id;
+  const o = await call("zap_get_offers", { model_id: id, limit: 50 });
+  if (first) { console.log("RAW-OFFERS", JSON.stringify(o).slice(0, 2000)); first = false; }
+  const offers = o?.offers || o?.items || [];
+  md += `\n### ${q} → ${m.name || m.title} (мин ${m.min_price ?? m.price_min ?? "?"} ₪, магазинов ${offers.length})\n| Магазин | Цена ₪ |\n|---|---|\n`;
+  for (const x of offers) {
+    const store = x.store_name || x.store?.name || x.name || "";
+    if (WANT.test(store)) md += `| ${store} | ${x.price ?? x.total_price} |\n`;
+  }
+  md += `| _самая низкая из всех_ | ${Math.min(...offers.map((x) => Number(x.price ?? x.total_price) || 1e9))} |\n`;
+  await new Promise((r) => setTimeout(r, 1500));
+}
+console.log(md);
+if (process.env.GITHUB_STEP_SUMMARY) (await import("node:fs")).appendFileSync(process.env.GITHUB_STEP_SUMMARY, md);
