@@ -23,14 +23,14 @@ const call = async (name, args) => {
 };
 await rpc("initialize", { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "buildengine-pricecheck-test", version: "0.1" } });
 await rpc("notifications/initialized", null, true);
-const PARTS = ["RTX 5060 Ti 16GB", "RTX 5070", "Ryzen 7 7800X3D", "Ryzen 5 7600"];
+const PARTS = [["RTX 5060 Ti 16GB","c-graphiccard"], ["RTX 5070 12GB","c-graphiccard"], ["Ryzen 7 7800X3D","c-cpu"], ["Ryzen 5 7600","c-cpu"]];
 const WANT = /KSP|ק\.?ס\.?פ|אייבורי|ivory|TMS|טי אם אס|באג|bug/i;
 let md = "## Тест цен через Zap\n";
 let first = true;
-for (const q of PARTS) {
-  const s = await call("zap_search_products", { query: q, page_size: 3 });
-  if (first) { console.log("RAW-SEARCH", JSON.stringify(s).slice(0, 1500)); }
-  const models = s?.models || s?.results || s?.items || [];
+for (const [q, cat] of PARTS) {
+  const s = await call("zap_search_products", { query: q, category: cat, page_size: 3 });
+  
+  const models = (s?.products || []).filter((p) => p.kind === "model").concat((s?.products || []).filter((p) => p.kind !== "model"));
   const m = models[0];
   if (!m) { md += `\n### ${q}\nне найдено (${s?.status || "?"})\n`; continue; }
   const id = m.model_id || m.id;
