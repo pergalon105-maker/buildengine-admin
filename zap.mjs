@@ -34,7 +34,7 @@ for (const [q, cat] of PARTS) {
   const m = models[0];
   if (!m) { md += `\n### ${q}\nне найдено (${s?.status || "?"})\n`; continue; }
   const id = m.model_id || m.id;
-  const o = await call("zap_get_offers", { model_id: id, limit: 50 });
+  const o = await call("zap_get_offers", { model_id: id, limit: 20 });
   if (first) { console.log("RAW-OFFERS", JSON.stringify(o).slice(0, 2000)); first = false; }
   const offers = o?.offers || o?.items || [];
   md += `\n### ${q} → ${m.name || m.title} (мин ${m.min_price ?? m.price_min ?? "?"} ₪, магазинов ${offers.length})\n| Магазин | Цена ₪ |\n|---|---|\n`;
