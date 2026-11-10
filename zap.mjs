@@ -35,12 +35,12 @@ for (const [q, cat] of PARTS) {
   if (!m) { md += `\n### ${q}\nне найдено (${s?.status || "?"})\n`; continue; }
   const id = m.model_id || m.id;
   const o = await call("zap_get_offers", { model_id: id, limit: 20 });
-  if (first) { console.log("RAW-OFFERS", JSON.stringify(o).slice(0, 2000)); first = false; }
+  
   const offers = o?.offers || o?.items || [];
   md += `\n### ${q} → ${m.name || m.title} (мин ${m.min_price ?? m.price_min ?? "?"} ₪, магазинов ${offers.length})\n| Магазин | Цена ₪ |\n|---|---|\n`;
   for (const x of offers) {
     const store = x.store_name || x.store?.name || x.name || "";
-    if (WANT.test(store)) md += `| ${store} | ${x.price ?? x.total_price} |\n`;
+    md += `| ${WANT.test(store) ? "**" + store + "**" : store} | ${x.price ?? x.total_price} |\n`;
   }
   md += `| _самая низкая из всех_ | ${Math.min(...offers.map((x) => Number(x.price ?? x.total_price) || 1e9))} |\n`;
   await new Promise((r) => setTimeout(r, 1500));
